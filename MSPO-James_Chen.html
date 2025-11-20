@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>Monthly Time Entries</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+        /* —— 版式 —— */
+        html,body{margin:0;background:#f6f7fb;font:14px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,Arial,
+        "PingFang SC","Microsoft YaHei",sans-serif;color:#374151}
+        .wrap{max-width:1400px;margin:12px auto;padding:8px}
+        .list{display:block}
+
+        /* —— 卡片容器：保持相对定位，用于裁掉 iframe 顶部 Header —— */
+        .iframeWin{position:relative;height:196px;margin:0;background:#fff;border:1px solid #e5e7eb;border-radius:10px;
+            box-shadow:0 6px 18px rgba(0,0,0,.06);overflow:hidden}
+        .iframeWin.all{height:360px;top:0}
+
+        /* —— 关键：隐藏 Header —— */
+        iframe{width:1500px;height:390px;position:absolute;bottom:-34px;right:0;left:auto;border:0;background:#fff}
+
+        /* —— 顶部白条（保持你原来的遮罩思路） —— */
+        .hdrPad{position:absolute;left:0;top:0;right:0;height:44px;background:#fff;opacity:.92}
+
+
+        /* —— 强化后的标题条（渐变：左实色→右透明） ——
+           说明：pointer-events:none 让标题不拦点击，避免挡住任何交互 */
+        .iframeNum{
+            position:absolute;
+            left:12px;
+            bottom:145px;
+            z-index:999;
+            /*pointer-events:none;*/
+            display:flex;align-items:center;gap:10px;
+            padding:8px 300px 8px 12px;
+            border-radius:12px 0px 0px 12px;
+            color:#fff;font-weight:600;letter-spacing:.2px;
+            background:linear-gradient(90deg, rgb(2 24 56) 0%, rgb(2 24 56) 30%, rgba(0, 0, 0, 0.1) 90%, rgba(0, 0, 0, 0) 100%);
+            backdrop-filter:saturate(120%) blur(2px);
+        }
+        /* 周次徽章（更有层次感） */
+        .iframeNum .wk{
+            /*pointer-events:none;*/
+            font-weight:800;
+            padding:4px 10px;border-radius:999px;
+            background:rgba(255,255,255,.18);
+            border:1px solid rgba(255,255,255,.35);
+        }
+        /* 日期范围文本 */
+        .iframeNum .range{
+            /*pointer-events:none;*/
+            opacity:.95;white-space:nowrap;
+            text-shadow:0 1px 0 rgba(0,0,0,.08);
+        }
+
+        @media print{body{background:#fff}.iframeWin{break-inside:avoid-page;box-shadow:none}}
+        /* —— 顶部时间显示（居中，半透明背景） —— */
+        .nowTime {
+          position: absolute;
+          top: 25px;
+          left: 50%;
+          transform: translateX(-50%);
+          z-index: 1000;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 16px;
+
+          background: rgba(2, 24, 56, 0.9);
+          color: #fff;
+          font-weight: 500;
+          font-size: 16px;
+          letter-spacing: 0.4px;
+          padding: 8px 160px;
+          border-bottom-left-radius: 12px;
+          border-bottom-right-radius: 12px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+          backdrop-filter: blur(4px);
+        }
+        .nowTime .name {
+          font-weight: 700;
+          letter-spacing: 0.8px;
+          font-size: 17px;
+        }
+        .nowTime .time {
+          opacity: 0.9;
+          font-variant-numeric: tabular-nums;
+        }
+
+    </style>
+</head>
+<body>
+<div class="wrap">
+  <div id="nowTime" class="nowTime">
+    <span class="name"></span>
+    <span class="time"></span>
+  </div>
+
+  <div id="list" class="list"></div>
+</div>
+
+<script>
+  const SRC_BASE =
+          "https://lenovo-lps-prod.crm5.dynamics.com/main.aspx?appid=fe25e8d6-2d18-ef11-840a-0022481612b1&forceUCI=1&pagetype=entitylist&etn=msdyn_timeentry&viewid=ae4d71d0-62ce-e811-8158-000d3af9b9ce&viewType=1039";
+
+  // === 日期工具 ===
+  function startOfMonth(d){return new Date(d.getFullYear(), d.getMonth(), 1);}
+  function endOfMonth(d){return new Date(d.getFullYear(), d.getMonth()+1, 0);}
+  function startOfWeekSun(d){const t=new Date(d);t.setDate(t.getDate()-t.getDay());return new Date(t.getFullYear(),t.getMonth(),t.getDate());}
+  function addDays(d,n){const t=new Date(d);t.setDate(t.getDate()+n);return t;}
+  // ✅ 改為美式格式：MM/DD/YYYY
+  function fmtUS(d){
+    const m=String(d.getMonth()+1).padStart(2,"0"),
+            day=String(d.getDate()).padStart(2,"0"),
+            y=d.getFullYear();
+    return `${m}/${day}/${y}`;
+  }
+
+  function calcWeeksForMonth(ref=new Date()){
+    const first=startOfMonth(ref), last=endOfMonth(ref);
+    let cur=startOfWeekSun(first); const out=[];
+    while(cur<=last){ const end=addDays(cur,6); out.push({start:cur,end}); cur=addDays(cur,7); }
+    return out;
+  }
+
+  // === 生成卡片 ===
+  function build(forDate=new Date()){
+    const weeks=calcWeeksForMonth(forDate);
+    const list=document.getElementById("list");
+    list.innerHTML="";
+    weeks.forEach((w,idx)=>{
+      const div=document.createElement("div");
+      div.className="iframeWin";
+      if(idx===0) div.classList.add("all");
+      div.innerHTML=`
+        <div class="hdrPad" aria-hidden="true"></div>
+        <div class="iframeNum">
+          <span class="wk">No.${idx+1} Week</span>
+          <span class="range">${fmtUS(w.start)}&nbsp;–&nbsp;${fmtUS(w.end)}</span>
+        </div>
+        <iframe src="${SRC_BASE}" loading="lazy"></iframe>
+      `;
+      list.appendChild(div);
+    });
+  }
+
+  // 預設為當前月（若要固定月份改成：build(new Date(2025, 9, 1));）
+  build();
+
+  // === 顶部时间显示 ===
+  // === 顶部时间显示 ===
+  function updateNowTime() {
+    const el = document.querySelector("#nowTime .time");
+    if (!el) return;
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mm = String(now.getMinutes()).padStart(2, "0");
+    el.textContent = `${m}/${d}/${y}  ${hh}:${mm}`;
+  }
+  updateNowTime();
+  setInterval(updateNowTime, 60 * 1000);
+  try{
+    const nel = document.querySelector("#nowTime .name");
+    if (nel) nel.textContent = `Time Entries of ${window.location.href.split("MSPO-")[1].split('.')[0]}`;
+  } catch (e) {}
+</script>
+</body>
+</html>
